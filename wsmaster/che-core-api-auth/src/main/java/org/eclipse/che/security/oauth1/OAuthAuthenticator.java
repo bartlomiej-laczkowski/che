@@ -24,12 +24,12 @@ import com.google.api.client.util.Base64;
 
 import org.eclipse.che.api.auth.shared.dto.OAuthToken;
 import org.eclipse.che.commons.annotation.Nullable;
-import org.eclipse.che.security.oauth1.shared.User;
 
 import javax.validation.constraints.NotNull;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.net.URI;
 import java.net.URL;
 import java.net.URLDecoder;
 import java.security.GeneralSecurityException;
@@ -64,7 +64,6 @@ public abstract class OAuthAuthenticator {
     private final String                                requestTokenUri;
     private final String                                accessTokenUri;
     private final String                                authorizeTokenUri;
-    private final String                                verifyAccessTokenUri;
     private final String                                redirectUri;
     private final HttpTransport                         httpTransport;
     private final Map<String, OAuthCredentialsResponse> credentialsStore;
@@ -77,7 +76,6 @@ public abstract class OAuthAuthenticator {
                                  @NotNull final String requestTokenUri,
                                  @NotNull final String accessTokenUri,
                                  @NotNull final String authorizeTokenUri,
-                                 @NotNull final String verifyAccessTokenUri,
                                  @NotNull final String redirectUri) {
         this.clientId = clientId;
         this.clientSecret = clientSecret;
@@ -85,7 +83,6 @@ public abstract class OAuthAuthenticator {
         this.requestTokenUri = requestTokenUri;
         this.accessTokenUri = accessTokenUri;
         this.authorizeTokenUri = authorizeTokenUri;
-        this.verifyAccessTokenUri = verifyAccessTokenUri;
         this.redirectUri = redirectUri;
         this.httpTransport = new NetHttpTransport();
         this.credentialsStore = new HashMap<>();
@@ -179,9 +176,6 @@ public abstract class OAuthAuthenticator {
             final String state = (String)callbackUrl.getFirst(STATE_PARAM_KEY);
 
             String userId = getUserFromStateParameter(state);
-            if (userId == null) {
-                userId = getUser(credentials.token, credentials.tokenSecret).getId();
-            }
 
             credentialsStoreLock.lock();
             try {
@@ -205,19 +199,6 @@ public abstract class OAuthAuthenticator {
             throw new OAuthAuthenticationException(e);
         }
     }
-
-    /**
-     * Get user info.
-     *
-     * @param token
-     *         the token.
-     * @param tokenSecret
-     *         the token secret.
-     * @return the {@link org.eclipse.che.security.oauth1.shared.User} info.
-     * @throws OAuthAuthenticationException
-     *         if fail to get {@link org.eclipse.che.security.oauth1.shared.User} info.
-     */
-    public abstract User getUser(final String token, final String tokenSecret) throws OAuthAuthenticationException;
 
     /**
      * Get name of OAuth provider supported by current implementation.
@@ -253,17 +234,14 @@ public abstract class OAuthAuthenticator {
      *         the HTTP request method.
      * @param requestUrl
      *         the HTTP request url with encoded query parameters.
-     * @param requestParameters
-     *         the HTTP request parameters. HTTP request parameters must include raw values of application/x-www-form-urlencoded POST
-     *         parameters.
      * @return the authorization header value, or {@code null}.
      * @throws IOException
      *         if something wrong occurs.
      */
-    public String computeAuthorizationHeader(@NotNull final String userId,
-                                             @NotNull final String requestMethod,
-                                             @NotNull final String requestUrl,
-                                             @NotNull final Map<String, String> requestParameters)
+    String computeAuthorizationHeader(@NotNull final String userId,
+                                      @NotNull final String requestMethod,
+                                      @NotNull final String requestUrl,
+                                      @NotNull final Map<String, String> requestParameters)
             throws IOException, InvalidKeySpecException, NoSuchAlgorithmException {
 
         final OAuthCredentialsResponse credentials = new OAuthCredentialsResponse();
@@ -275,7 +253,7 @@ public abstract class OAuthAuthenticator {
         return null;
     }
 
-    public OAuthToken getToken(final String userId) throws IOException, InvalidKeySpecException, NoSuchAlgorithmException {
+    private OAuthToken getToken(final String userId) throws IOException, InvalidKeySpecException, NoSuchAlgorithmException {
         OAuthCredentialsResponse credentials;
         credentialsStoreLock.lock();
         try {
@@ -318,7 +296,7 @@ public abstract class OAuthAuthenticator {
         oauthParameters.computeTimestamp();
 
         final GenericUrl genericRequestUrl = new GenericUrl(requestUrl);
-//        genericRequestUrl.putAll(requestParameters);
+        genericRequestUrl.putAll(requestParameters);
 
         try {
             oauthParameters.computeSignature(requestMethod, genericRequestUrl);

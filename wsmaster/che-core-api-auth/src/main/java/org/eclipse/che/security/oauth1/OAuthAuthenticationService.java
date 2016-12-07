@@ -10,21 +10,12 @@
  *******************************************************************************/
 package org.eclipse.che.security.oauth1;
 
-import org.eclipse.che.api.auth.shared.dto.OAuthToken;
-import org.eclipse.che.api.core.BadRequestException;
-import org.eclipse.che.api.core.ForbiddenException;
-import org.eclipse.che.api.core.NotFoundException;
-import org.eclipse.che.api.core.ServerException;
-import org.eclipse.che.api.core.rest.annotations.Required;
-import org.eclipse.che.commons.env.EnvironmentContext;
-import org.eclipse.che.commons.subject.Subject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import javax.inject.Inject;
 import javax.ws.rs.GET;
 import javax.ws.rs.Path;
-import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
 import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.Context;
@@ -41,15 +32,16 @@ import java.net.URLDecoder;
 import java.security.NoSuchAlgorithmException;
 import java.security.Principal;
 import java.security.spec.InvalidKeySpecException;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
+import static com.google.common.base.Strings.isNullOrEmpty;
+
 /**
- * RESTful wrapper for OAuth 1.0 {@link OAuthAuthenticator}.
+ * RESTful wrapper for OAuth 1.0.
  *
  * @author Kevin Pollet
+ * @author Igor Vinokur
  */
 @Path("oauth/1.0")
 public class OAuthAuthenticationService {
@@ -99,37 +91,60 @@ public class OAuthAuthenticationService {
     public Response callback(@Context UriInfo uriInfo)
             throws OAuthAuthenticationException, InvalidKeySpecException, NoSuchAlgorithmException {
         final URL requestUrl = getRequestUrl(uriInfo);
-        final Map<String, List<String>> params = getRequestParameters(getState(requestUrl));
+        final Map<String, String> params = getRequestParameters(getState(requestUrl));
 
-        final String providerName = getParameter(params, "oauth_provider");
+        final String providerName = params.get("oauth_provider");
         final OAuthAuthenticator oauth = getAuthenticator(providerName);
 
         oauth.callback(requestUrl);
 
-        final String redirectAfterLogin = getParameter(params, "redirect_after_login");
+        final String redirectAfterLogin = params.get("redirect_after_login");
         return Response.temporaryRedirect(URI.create(redirectAfterLogin)).build();
     }
 
     @GET
-    @Path("token")
-    @Produces(MediaType.APPLICATION_JSON)
-    public OAuthToken token(@Required @QueryParam("oauth_provider") String oauthProvider,
-                            @QueryParam("user_id") String userId)
-            throws ServerException, BadRequestException, NotFoundException, ForbiddenException, InvalidKeySpecException,
-                   NoSuchAlgorithmException {
-        OAuthAuthenticator provider = getAuthenticator(oauthProvider);
-        try {
-            OAuthToken token = provider.getToken(userId);
-            if (token != null) {
-                return token;
-            }
-            throw new NotFoundException("OAuth token for user " + userId + " was not found");
-        } catch (IOException e) {
-            throw new ServerException(e.getLocalizedMessage(), e);
+    @Path("invalidate")
+    public Response invalidate(@Context UriInfo uriInfo, @Context SecurityContext security) {
+        final Principal principal = security.getUserPrincipal();
+        OAuthAuthenticator oauth = getAuthenticator(uriInfo.getQueryParameters().getFirst("oauth_provider"));
+        if (principal != null && oauth.invalidateToken(principal.getName())) {
+            return Response.ok().build();
         }
+        return Response.status(404).entity("Not found OAuth token for " + (principal != null ? principal.getName() :
+                                                                           null)).type(MediaType.TEXT_PLAIN).build();
     }
 
-    protected URL getRequestUrl(UriInfo uriInfo) {
+    @GET
+    @Path("authorization")
+    public String authorization(@QueryParam("oauth_provider") String oauthProviderName,
+                                @QueryParam("request_method") String requestMethod,
+                                @QueryParam("request_url") String requestUrl,
+                                @QueryParam("user_id") String userId)
+            throws IOException, InvalidKeySpecException, NoSuchAlgorithmException {
+
+        final OAuthAuthenticator oAuthAuthenticator = providers.getAuthenticator(oauthProviderName);
+        if (oAuthAuthenticator != null) {
+            Map<String, String> requestParameters = new HashMap<>();
+            if (requestUrl.contains("?")) {
+                requestParameters.putAll(getRequestParameters(requestUrl.substring(requestUrl.indexOf("?"))));
+            }
+            return oAuthAuthenticator.computeAuthorizationHeader(userId, requestMethod, requestUrl, requestParameters);
+        }
+        return null;
+    }
+
+    private OAuthAuthenticator getAuthenticator(String oauthProviderName) {
+        OAuthAuthenticator oauth = providers.getAuthenticator(oauthProviderName);
+        if (oauth == null) {
+            LOG.error("Unsupported OAuth provider {} ", oauthProviderName);
+            throw new WebApplicationException(Response.status(400).entity("Unsupported OAuth provider " +
+                                                                          oauthProviderName).type(MediaType.TEXT_PLAIN)
+                                                      .build());
+        }
+        return oauth;
+    }
+
+    private URL getRequestUrl(UriInfo uriInfo) {
         try {
             return uriInfo.getRequestUri().toURL();
         } catch (MalformedURLException e) {
@@ -138,19 +153,9 @@ public class OAuthAuthenticationService {
         }
     }
 
-    /**
-     * OAuth 2.0 support pass query parameters 'state' to OAuth authorization server. Authorization server sends it
-     * back
-     * to callback URL. Here restore all parameters specified in initial request to {@link
-     * #authenticate(javax.ws.rs.core.UriInfo)} .
-     *
-     * @param state
-     *         query parameter state
-     * @return map contains request parameters to method {@link #authenticate(javax.ws.rs.core.UriInfo)}
-     */
-    protected Map<String, List<String>> getRequestParameters(String state) {
-        Map<String, List<String>> params = new HashMap<>();
-        if (!(state == null || state.isEmpty())) {
+    private Map<String, String> getRequestParameters(String state) {
+        Map<String, String> params = new HashMap<>();
+        if (!isNullOrEmpty(state)) {
             String decodedState;
             try {
                 decodedState = URLDecoder.decode(state, "UTF-8");
@@ -171,22 +176,16 @@ public class OAuthAuthenticationService {
                         name = pair.substring(0, eq);
                         value = pair.substring(eq + 1);
                     }
-
-                    List<String> l = params.get(name);
-                    if (l == null) {
-                        l = new ArrayList<>();
-                        params.put(name, l);
-                    }
-                    l.add(value);
+                    params.put(name, value);
                 }
             }
         }
         return params;
     }
 
-    protected String getState(URL requestUrl) {
+    private String getState(URL requestUrl) {
         final String query = requestUrl.getQuery();
-        if (!(query == null || query.isEmpty())) {
+        if (!isNullOrEmpty(query)) {
             int start = query.indexOf("state=");
             if (start < 0) {
                 return null;
@@ -196,52 +195,6 @@ public class OAuthAuthenticationService {
                 end = query.length();
             }
             return query.substring(start + 6, end);
-        }
-        return null;
-    }
-
-    protected String getParameter(Map<String, List<String>> params, String name) {
-        List<String> l = params.get(name);
-        if (!(l == null || l.isEmpty())) {
-            return l.get(0);
-        }
-        return null;
-    }
-
-    @GET
-    @Path("invalidate")
-    public Response invalidate(@Context UriInfo uriInfo, @Context SecurityContext security) {
-        final Principal principal = security.getUserPrincipal();
-        OAuthAuthenticator oauth = getAuthenticator(uriInfo.getQueryParameters().getFirst("oauth_provider"));
-        if (principal != null && oauth.invalidateToken(principal.getName())) {
-            return Response.ok().build();
-        }
-        return Response.status(404).entity("Not found OAuth token for " + (principal != null ? principal.getName() :
-                                                                           null)).type(MediaType.TEXT_PLAIN).build();
-    }
-
-    protected OAuthAuthenticator getAuthenticator(String oauthProviderName) {
-        OAuthAuthenticator oauth = providers.getAuthenticator(oauthProviderName);
-        if (oauth == null) {
-            LOG.error("Unsupported OAuth provider {} ", oauthProviderName);
-            throw new WebApplicationException(Response.status(400).entity("Unsupported OAuth provider " +
-                                                                          oauthProviderName).type(MediaType.TEXT_PLAIN)
-                                                      .build());
-        }
-        return oauth;
-    }
-
-    @GET
-    @Path("authorization")
-    public String authorization(@QueryParam("oauth_provider") String oauthProviderName,
-                                         @QueryParam("request_method") String requestMethod,
-                                         @QueryParam("request_url") String requestUrl,
-                                         @QueryParam("user_id") String userId)
-            throws IOException, InvalidKeySpecException, NoSuchAlgorithmException {
-
-        final OAuthAuthenticator oAuthAuthenticator = providers.getAuthenticator(oauthProviderName);
-        if (oAuthAuthenticator != null) {
-            return oAuthAuthenticator.computeAuthorizationHeader(userId, requestMethod, requestUrl, null);
         }
         return null;
     }
