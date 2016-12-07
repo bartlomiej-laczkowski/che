@@ -1,15 +1,15 @@
-# Copyright (c) 2012-2016 Red Hat, Inc
+# Copyright (c) 2012-2016 Codenvy, S.A., Red Hat, Inc
 # All rights reserved. This program and the accompanying materials
 # are made available under the terms of the Eclipse Public License v1.0
 # which accompanies this distribution, and is available at
 # http://www.eclipse.org/legal/epl-v10.html
 #
 # Contributors:
-#   Dharmit Shah  - Initial implementation
-#   Mario Loriedo - Improvements
+#   Mario Loriedo
+#   Codenvy S.A
 #
 # To build it, run in the repository root:
-#  `docker build -t registry.centos.org/eclipse/che-server -f Dockerfile.centos .`
+#  `docker build -t eclipse/che-server .`
 #
 # To run it:
 #  docker run --net=host \
@@ -18,36 +18,26 @@
 #             -v /home/user/che/lib:/home/user/che/lib-copy \
 #             -v /home/user/che/workspaces:/home/user/che/workspaces \
 #             -v /home/user/che/storage:/home/user/che/storage \
-#             registry.centos.org/eclipse/che-server
+#             codenvy/che-server
 #           
-FROM registry.centos.org/centos/centos:latest
+FROM alpine:3.4
 
 ENV LANG=C.UTF-8 \
-    JAVA_HOME=/usr/lib/jvm/jre-1.8.0 \
+    JAVA_HOME=/usr/lib/jvm/default-jvm/jre \
     PATH=${PATH}:${JAVA_HOME}/bin \
-    CHE_HOME=/home/user/che \
     DOCKER_VERSION=1.6.0 \
-    DOCKER_BUCKET=get.docker.com
+    DOCKER_BUCKET=get.docker.com \
+    CHE_IN_CONTAINER=true
 
-RUN yum -y update && \
-    yum -y install openssl java sudo && \
+RUN echo "http://dl-4.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
+    apk upgrade --update && \
+    apk add --update ca-certificates curl openssl openjdk8 sudo bash && \
     curl -sSL "https://${DOCKER_BUCKET}/builds/Linux/x86_64/docker-${DOCKER_VERSION}" -o /usr/bin/docker && \
     chmod +x /usr/bin/docker && \
-    yum -y remove openssl && \
-    yum clean all
-RUN useradd user -d /home/user -s /bin/bash -u 1000 -G root && \
-    groupadd docker -g 101 && \
-    usermod -aG ftp,users,docker user && \
     echo "%root ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers && \
-    sed -i 's/Defaults    requiretty/#Defaults    requiretty/g' /etc/sudoers && \
-    rm -rf /tmp/* /var/cache/yum
+    rm -rf /tmp/* /var/cache/apk/*
 
 EXPOSE 8000 8080
-
-USER user
-
-ADD assembly/assembly-main/target/eclipse-che-*/eclipse-che-* /home/user/che/
-
-ENTRYPOINT [ "/home/user/che/bin/che.sh", "-c" ]
-
-CMD [ "run" ]
+COPY entrypoint.sh /entrypoint.sh
+ADD assembly /home/user/che
+ENTRYPOINT ["/entrypoint.sh"]
