@@ -24,7 +24,7 @@ import java.util.Map;
 import static com.google.common.base.Strings.isNullOrEmpty;
 
 /**
- * Utility class for oAuth.
+ * Utility class for oAuth methods.
  */
 public class OAuthUtils {
 

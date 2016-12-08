@@ -17,7 +17,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Allow store and provide services which implementations of {@link OAuthAuthenticator} for OAuth 1.
+ * Allow store and provide services with implementations of {@link OAuthAuthenticator} for OAuth 1.
  *
  * @author Kevin Pollet
  */

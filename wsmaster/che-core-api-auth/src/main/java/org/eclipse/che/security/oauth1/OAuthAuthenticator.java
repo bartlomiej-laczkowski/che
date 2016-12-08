@@ -95,11 +95,11 @@ public abstract class OAuthAuthenticator {
      *
      * @param requestUrl
      *         URL of current HTTP request. This parameter required to be able determine URL for redirection after
-     *         authentication. If URL contains query parameters they will be copy to 'state' parameter and returned to
+     *         authentication. If URL contains query parameters they will be copied to 'state' parameter and returned to
      *         callback method.
      * @return URL for authentication.
      */
-    public String getAuthenticateUrl(final URL requestUrl)
+    String getAuthenticateUrl(final URL requestUrl)
             throws OAuthAuthenticationException, InvalidKeySpecException, NoSuchAlgorithmException {
 
         final GenericUrl callbackUrl = new GenericUrl(redirectUri);
@@ -146,7 +146,7 @@ public abstract class OAuthAuthenticator {
      * @throws OAuthAuthenticationException
      *         if authentication failed or {@code requestUrl} does not contain required parameters.
      */
-    public String callback(final URL requestUrl) throws OAuthAuthenticationException, InvalidKeySpecException, NoSuchAlgorithmException {
+    String callback(final URL requestUrl) throws OAuthAuthenticationException, InvalidKeySpecException, NoSuchAlgorithmException {
         try {
             final GenericUrl callbackUrl = new GenericUrl(requestUrl.toString());
 
@@ -213,7 +213,7 @@ public abstract class OAuthAuthenticator {
      *
      * @return the oauth provider name.
      */
-    public abstract String getOAuthProvider();
+    abstract String getOAuthProvider();
 
     /**
      * Compute the Authorization header to sign the OAuth 1 request.

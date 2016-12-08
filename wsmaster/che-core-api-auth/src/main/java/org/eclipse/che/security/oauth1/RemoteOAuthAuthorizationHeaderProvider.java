@@ -70,14 +70,12 @@ public class RemoteOAuthAuthorizationHeaderProvider implements OAuthAuthorizatio
                                   .queryParam("request_method", requestMethod)
                                   .queryParam("request_url", requestUrl);
         try {
-            Link getTokenLink = DtoFactory.newDto(Link.class).withHref(ub.build().toString()).withMethod("GET");
-            return httpJsonRequestFactory.fromLink(getTokenLink)
-                                         .request().asString();
-        } catch (NotFoundException ne) {
-            LOG.warn("Token not found for user {}", userId);
-            return null;
-        } catch (ServerException | UnauthorizedException | ForbiddenException | ConflictException | BadRequestException e) {
-            LOG.warn("Exception on token retrieval, message : {}", e.getLocalizedMessage());
+            Link link = DtoFactory.newDto(Link.class).withHref(ub.build().toString()).withMethod("GET");
+            return httpJsonRequestFactory.fromLink(link)
+                                         .request()
+                                         .asString();
+        } catch (Exception e) {
+            LOG.warn(e.getLocalizedMessage());
             return null;
         }
     }

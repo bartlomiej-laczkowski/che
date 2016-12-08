@@ -47,31 +47,6 @@ public class OAuthAuthenticationService {
     @Inject
     protected OAuthAuthenticatorProvider providers;
 
-    /**
-     * Redirect request to OAuth provider site for authentication|authorization. Client request must contains set of
-     * required query parameters:
-     * <table>
-     * <tr><th>Name</th><th>Description</th><th>Mandatory</th><th>Default value</th></tr>
-     * <tr><td>oauth_provider</td><td>Name of OAuth provider. At the moment <tt>google</tt> and <tt>github</tt>
-     * supported</td><td>yes</td><td>none</td></tr>
-     * <tr><td>scope</td><td>Specify exactly what type of access needed. List of scopes dependents to OAuth provider.
-     * Requested scopes displayed at user authorization page at OAuth provider site. Check docs about scopes
-     * supported by
-     * suitable OAuth provider.</td><td>no</td><td>Empty list</td></tr>
-     * <tr><td>mode</td><td>Authentication mode. May be <tt>federated_login</tt> or <tt>token</tt>. If <tt>mode</tt>
-     * set
-     * as <tt>federated_login</tt> that parameters 'username' and 'password' added to redirect URL after successful
-     * user
-     * authentication. (see next parameter) In this case 'password' is temporary generated password. This password will
-     * be validated by FederatedLoginModule.</td><td>no</td><td>token</td></tr>
-     * <tr><td>redirect_after_login</td><td>URL for user redirection after successful
-     * authentication</td><td>yes</td><td>none</td></tr>
-     * </table>
-     *
-     * @param uriInfo
-     *         UriInfo
-     * @return typically Response that redirect user for OAuth provider site
-     */
     @GET
     @Path("authenticate")
     public Response authenticate(@Context UriInfo uriInfo)
@@ -104,7 +79,7 @@ public class OAuthAuthenticationService {
                                 @QueryParam("request_method") String requestMethod,
                                 @QueryParam("request_url") String requestUrl,
                                 @QueryParam("user_id") String userId)
-            throws IOException, InvalidKeySpecException, NoSuchAlgorithmException {
+            throws InvalidKeySpecException, NoSuchAlgorithmException, IOException {
 
         final OAuthAuthenticator oAuthAuthenticator = providers.getAuthenticator(oauthProviderName);
         if (oAuthAuthenticator != null) {
