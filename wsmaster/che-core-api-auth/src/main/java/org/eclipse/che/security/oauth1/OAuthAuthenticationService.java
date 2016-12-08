@@ -21,21 +21,18 @@ import javax.ws.rs.WebApplicationException;
 import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
-import javax.ws.rs.core.SecurityContext;
 import javax.ws.rs.core.UriInfo;
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.net.MalformedURLException;
 import java.net.URI;
 import java.net.URL;
-import java.net.URLDecoder;
 import java.security.NoSuchAlgorithmException;
-import java.security.Principal;
 import java.security.spec.InvalidKeySpecException;
-import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
-import static com.google.common.base.Strings.isNullOrEmpty;
+import static org.eclipse.che.security.OAuthUtils.getParameter;
+import static org.eclipse.che.security.OAuthUtils.getRequestParameters;
+import static org.eclipse.che.security.OAuthUtils.getRequestUrl;
 
 /**
  * RESTful wrapper for OAuth 1.0.
@@ -80,8 +77,7 @@ public class OAuthAuthenticationService {
     public Response authenticate(@Context UriInfo uriInfo)
             throws OAuthAuthenticationException, InvalidKeySpecException, NoSuchAlgorithmException {
         final OAuthAuthenticator oauth = getAuthenticator(uriInfo.getQueryParameters().getFirst("oauth_provider"));
-        final URL requestUrl = getRequestUrl(uriInfo);
-        final String authUrl = oauth.getAuthenticateUrl(requestUrl);
+        final String authUrl = oauth.getAuthenticateUrl(getRequestUrl(uriInfo));
 
         return Response.temporaryRedirect(URI.create(authUrl)).build();
     }
@@ -91,27 +87,15 @@ public class OAuthAuthenticationService {
     public Response callback(@Context UriInfo uriInfo)
             throws OAuthAuthenticationException, InvalidKeySpecException, NoSuchAlgorithmException {
         final URL requestUrl = getRequestUrl(uriInfo);
-        final Map<String, String> params = getRequestParameters(getState(requestUrl));
+        final Map<String, List<String>> params = getRequestParameters(requestUrl);
 
-        final String providerName = params.get("oauth_provider");
+        final String providerName = getParameter(params, "oauth_provider");
         final OAuthAuthenticator oauth = getAuthenticator(providerName);
 
         oauth.callback(requestUrl);
 
-        final String redirectAfterLogin = params.get("redirect_after_login");
+        final String redirectAfterLogin = getParameter(params, "redirect_after_login");
         return Response.temporaryRedirect(URI.create(redirectAfterLogin)).build();
-    }
-
-    @GET
-    @Path("invalidate")
-    public Response invalidate(@Context UriInfo uriInfo, @Context SecurityContext security) {
-        final Principal principal = security.getUserPrincipal();
-        OAuthAuthenticator oauth = getAuthenticator(uriInfo.getQueryParameters().getFirst("oauth_provider"));
-        if (principal != null && oauth.invalidateToken(principal.getName())) {
-            return Response.ok().build();
-        }
-        return Response.status(404).entity("Not found OAuth token for " + (principal != null ? principal.getName() :
-                                                                           null)).type(MediaType.TEXT_PLAIN).build();
     }
 
     @GET
@@ -124,11 +108,7 @@ public class OAuthAuthenticationService {
 
         final OAuthAuthenticator oAuthAuthenticator = providers.getAuthenticator(oauthProviderName);
         if (oAuthAuthenticator != null) {
-            Map<String, String> requestParameters = new HashMap<>();
-            if (requestUrl.contains("?")) {
-                requestParameters.putAll(getRequestParameters(requestUrl.substring(requestUrl.indexOf("?"))));
-            }
-            return oAuthAuthenticator.computeAuthorizationHeader(userId, requestMethod, requestUrl, requestParameters);
+            return oAuthAuthenticator.computeAuthorizationHeader(userId, requestMethod, requestUrl);
         }
         return null;
     }
@@ -142,60 +122,5 @@ public class OAuthAuthenticationService {
                                                       .build());
         }
         return oauth;
-    }
-
-    private URL getRequestUrl(UriInfo uriInfo) {
-        try {
-            return uriInfo.getRequestUri().toURL();
-        } catch (MalformedURLException e) {
-            // should never happen
-            throw new RuntimeException(e.getMessage(), e);
-        }
-    }
-
-    private Map<String, String> getRequestParameters(String state) {
-        Map<String, String> params = new HashMap<>();
-        if (!isNullOrEmpty(state)) {
-            String decodedState;
-            try {
-                decodedState = URLDecoder.decode(state, "UTF-8");
-            } catch (UnsupportedEncodingException e) {
-                // should never happen, UTF-8 supported.
-                throw new RuntimeException(e.getMessage(), e);
-            }
-
-            for (String pair : decodedState.split("&")) {
-                if (!pair.isEmpty()) {
-                    String name;
-                    String value;
-                    int eq = pair.indexOf('=');
-                    if (eq < 0) {
-                        name = pair;
-                        value = "";
-                    } else {
-                        name = pair.substring(0, eq);
-                        value = pair.substring(eq + 1);
-                    }
-                    params.put(name, value);
-                }
-            }
-        }
-        return params;
-    }
-
-    private String getState(URL requestUrl) {
-        final String query = requestUrl.getQuery();
-        if (!isNullOrEmpty(query)) {
-            int start = query.indexOf("state=");
-            if (start < 0) {
-                return null;
-            }
-            int end = query.indexOf('&', start);
-            if (end < 0) {
-                end = query.length();
-            }
-            return query.substring(start + 6, end);
-        }
-        return null;
     }
 }
